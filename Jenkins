@@ -31,8 +31,8 @@ pipeline {
                     sh """
                         echo "Connecting to EC2..."
 
+                        # Clean old deployment
                         ssh -o StrictHostKeyChecking=no $EC2_USER@$EC2_IP '
-                            # Remove old deployment
                             rm -rf $APP_DIR
                             mkdir -p $APP_DIR
                         '
@@ -40,12 +40,14 @@ pipeline {
                         # Copy new files
                         scp -o StrictHostKeyChecking=no -r . $EC2_USER@$EC2_IP:$APP_DIR
 
-                        # Install & Restart
+                        # Install & Restart Application Safely
                         ssh -o StrictHostKeyChecking=no $EC2_USER@$EC2_IP '
-                            cd $APP_DIR/$BACKEND_DIR &&
-                            npm install --production &&
-                            pm2 delete sampleproject || true &&
-                            pm2 start app.js --name sampleproject &&
+                            cd $APP_DIR/$BACKEND_DIR
+                            npm install --production
+                            
+                            # Restart if exists, otherwise start new
+                            pm2 restart sampleproject 2>/dev/null || pm2 start app.js --name sampleproject
+                            
                             pm2 save
                         '
                     """
