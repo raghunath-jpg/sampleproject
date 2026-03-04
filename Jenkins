@@ -1,0 +1,68 @@
+pipeline {
+    agent any
+
+    environment {
+        EC2_USER = "ubuntu"
+        EC2_IP   = "15.206.70.145"
+        APP_DIR  = "/home/ubuntu/sampleproject"
+        BACKEND_DIR = "backend"
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                git branch: 'main',
+                    credentialsId: 'ebc918bd-74ef-4e74-9f38-bd3e8213bc5b',
+                    url: 'https://github.com/raghunath-jpg/sampleproject.git'
+            }
+        }
+
+        stage('Prepare Build') {
+            steps {
+                sh 'echo "Build Started..."'
+                sh 'ls -la'
+            }
+        }
+
+        stage('Deploy to EC2') {
+            steps {
+                sshagent(credentials: ['2c6af4d8-f480-4329-8191-f91d7a1bf577']) {
+                    sh """
+                        echo "Connecting to EC2..."
+
+                        ssh -o StrictHostKeyChecking=no $EC2_USER@$EC2_IP '
+                            # Remove old deployment
+                            rm -rf $APP_DIR
+                            mkdir -p $APP_DIR
+                        '
+
+                        # Copy new files
+                        scp -o StrictHostKeyChecking=no -r . $EC2_USER@$EC2_IP:$APP_DIR
+
+                        # Install & Restart
+                        ssh -o StrictHostKeyChecking=no $EC2_USER@$EC2_IP '
+                            cd $APP_DIR/$BACKEND_DIR &&
+                            npm install --production &&
+                            pm2 delete sampleproject || true &&
+                            pm2 start app.js --name sampleproject &&
+                            pm2 save
+                        '
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            echo "Pipeline Finished"
+        }
+        success {
+            echo "✅ Deployment Successful"
+        }
+        failure {
+            echo "❌ Deployment Failed"
+        }
+    }
+}
