@@ -6,6 +6,10 @@ pipeline {
         EC2_IP   = "15.206.70.145"
         APP_DIR  = "/home/ubuntu/sampleproject"
         BACKEND_DIR = "backend"
+        FRONTEND_DIR = "frontend"
+
+        S3_BUCKET = "aws-frontends3"
+        AWS_REGION = "ap-south-1"
     }
 
     stages {
@@ -18,36 +22,43 @@ pipeline {
             }
         }
 
-        stage('Prepare Build') {
+        stage('Build Frontend') {
             steps {
-                sh 'echo "Build Started..."'
-                sh 'ls -la'
+                dir("${FRONTEND_DIR}") {
+                    sh 'npm install'
+                    sh 'npm run build'
+                }
             }
         }
 
-        stage('Deploy to EC2') {
+        stage('Deploy Frontend to S3') {
+            steps {
+                sh """
+                    echo "Uploading frontend to S3..."
+                    aws s3 rm s3://$S3_BUCKET --recursive
+                    aws s3 cp $FRONTEND_DIR/build/ s3://$S3_BUCKET --recursive
+                """
+            }
+        }
+
+        stage('Deploy Backend to EC2') {
             steps {
                 sshagent(credentials: ['2c6af4d8-f480-4329-8191-f91d7a1bf577']) {
                     sh """
                         echo "Connecting to EC2..."
 
-                        # Clean old deployment
                         ssh -o StrictHostKeyChecking=no $EC2_USER@$EC2_IP '
                             rm -rf $APP_DIR
                             mkdir -p $APP_DIR
                         '
 
-                        # Copy new files
                         scp -o StrictHostKeyChecking=no -r . $EC2_USER@$EC2_IP:$APP_DIR
 
-                        # Install & Restart Application Safely
                         ssh -o StrictHostKeyChecking=no $EC2_USER@$EC2_IP '
                             cd $APP_DIR/$BACKEND_DIR
                             npm install --production
-                            
-                            # Restart if exists, otherwise start new
+
                             pm2 restart sampleproject 2>/dev/null || pm2 start app.js --name sampleproject
-                            
                             pm2 save
                         '
                     """
@@ -61,7 +72,7 @@ pipeline {
             echo "Pipeline Finished"
         }
         success {
-            echo "✅ Deployment Successful"
+            echo "✅ Backend + Frontend Deployment Successful"
         }
         failure {
             echo "❌ Deployment Failed"
